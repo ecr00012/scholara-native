@@ -33,7 +33,8 @@ public actor GutenbergHTTP {
         else {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 20; config.timeoutIntervalForResource = 120
-            config.urlCache = URLCache(memoryCapacity: 12_000_000, diskCapacity: 80_000_000, diskPath: "ScholaraDiscovery")
+            let cache = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory).appendingPathComponent("ScholaraNative/HTTP", isDirectory: true)
+            config.urlCache = URLCache(memoryCapacity: 12_000_000, diskCapacity: 80_000_000, diskPath: cache.path)
             config.httpAdditionalHeaders = ["User-Agent": "Scholara/0.2 (+https://github.com/ecr00012/scholara-native)"]
             self.session = URLSession(configuration: config)
         }

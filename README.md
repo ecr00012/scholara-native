@@ -13,7 +13,7 @@ open build/Scholara.app
 
 A current Swift 6 toolchain is required (Xcode or Apple Command Line Tools). The checks use a small executable runner so full Xcode/XCTest is not required. The only third-party runtime dependency is ZIPFoundation, pinned in Package.resolved. Open Package.swift in Xcode to work in the IDE.
 
-The packaging script signs locally with an ad-hoc identity. Set `SIGNING_IDENTITY` to a Developer ID identity for distribution signing. The local build is not notarized. The package is built for the host architecture; the supplied build is for Apple silicon.
+The packaging script creates both `build/Scholara.app` and `build/Scholara-macOS.zip`, signing in temporary staging outside cloud-synced folders. It signs locally with an ad-hoc identity. Set `SIGNING_IDENTITY` to a Developer ID identity for distribution signing. The local build is not notarized. The package is built for the host architecture; the supplied build is for Apple silicon.
 
 ## Reading and study
 
@@ -54,6 +54,6 @@ Live paid OpenRouter requests are not part of the automated tests. Signing/notar
 
 ## Provenance and iteration notes
 
-The original source snapshot is preserved in the initial commit. The sibling source repository is not modified. See [source provenance](docs/native/ORIGIN.md) and [iteration notes](docs/native/ITERATIONS.md).
+The original source snapshot is preserved in the initial commit. The sibling source repository is not modified. See [source provenance](docs/native/ORIGIN.md) and [iteration notes](docs/native/ITERATIONS.md), and [validation report](docs/native/VALIDATION.md).
 
 Primary API references: [Apple NLEmbedding](https://developer.apple.com/documentation/naturallanguage/nlembedding), [ZIPFoundation](https://github.com/weichsel/ZIPFoundation), [Gutendex](https://github.com/garethbjohnson/gutendex), [OpenRouter](https://openrouter.ai/docs/api-reference/chat-completion).
