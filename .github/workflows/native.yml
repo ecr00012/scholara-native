@@ -8,8 +8,11 @@ jobs:
       - name: Build and test
         run: swift run ScholaraChecks
       - name: Package native app
-        run: scripts/build-app.sh
+        run: scripts/build-dmg.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Scholara-macOS
-          path: build/Scholara-macOS.zip
+          path: |
+            build/Scholara-macOS.zip
+            build/Scholara-*.dmg
+            build/Scholara-*.dmg.sha256

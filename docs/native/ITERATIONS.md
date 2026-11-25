@@ -35,3 +35,9 @@ Optimizations: no offscreen page views; cover requests share a bounded pool and 
 Validation: 31 local regression checks pass, zero skips. New checks cover pagination continuity with oversized illustrations, resize anchors, reading-mode persistence, dictionary fields, EPUB 2 navigation, successful Gutenberg fallback/import without embedding, rejected HTML responses, atomic/deduplicated catalogue pagination, and maintenance backoff. The real embedding test now uses English prose because OS language detectors classified the old lorem-ipsum fixture differently in CI. Interactive testing verified EPUB page-button and keyboard turns, PDF single-page keyboard turns, Paper/Soft changes, dictionary card colors, and live catalogue growth from 32 to 64 after a retained-page retry.
 
 Final packaging refinement: sign in a temporary directory outside File Provider-managed Documents, then create the portable archive from that signed bundle. Move URLSession's disk cache to macOS Caches instead of the working directory. The release bundle is about 4.9 MB (2.1 MB compressed), and both local and hosted checks passed.
+
+## 5. Downloadable disk image
+
+At the owner’s request, publish the native build as a GitHub release DMG. Add a repeatable packaging script that extracts the verified app archive into temporary staging, includes an Applications shortcut and installation notes, creates a compressed read-only image, verifies its checksum, mounts it, verifies the app signature and executable bytes, and ejects it. Publish a separate SHA-256 checksum. CI now packages both ZIP and DMG.
+
+Optimization: use built-in hdiutil and ditto without a packaging dependency or Finder automation; retain temporary staging outside File Provider folders. The app remains ad-hoc signed, not notarized.

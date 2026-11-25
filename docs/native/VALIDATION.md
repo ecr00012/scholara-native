@@ -41,4 +41,4 @@ See ITERATIONS.md for per-iteration optimizations, including bounded networking,
 
 ## Original source integrity
 
-Original HEAD remains `3acb4d208e4df233f7cc7feb3b81b01cacb879a9`. Original status remains ` M src/agent/models.ts`. That file's SHA-256 is `5386d275c5ab2bf39bd6a0e1cb0b5cc3e5c7f1bdf9d2cb07613a794b529a8635`, matching the initial copied snapshot. The native repository is independent and private under ecr00012; original upstream pushes are disabled.
+Original HEAD remains `3acb4d208e4df233f7cc7feb3b81b01cacb879a9`. Original status remains ` M src/agent/models.ts`. That file's SHA-256 is `5386d275c5ab2bf39bd6a0e1cb0b5cc3e5c7f1bdf9d2cb07613a794b529a8635`, matching the initial copied snapshot. The native repository is independent and public under ecr00012 (visibility changed at the owner’s request); original upstream pushes are disabled.
