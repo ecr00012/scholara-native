@@ -50,13 +50,14 @@ struct DiscoveryView: View {
     @State private var status = ""
     @State private var serviceNotice = ""
     @State private var lastFailedURL: URL?
+    @State private var lastFailedReset = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Discover the classics").font(.largeTitle.weight(.semibold)).foregroundStyle(palette.ink)
                 Text("Public-domain books from Project Gutenberg, via Gutendex.").foregroundStyle(palette.muted)
                 if !serviceNotice.isEmpty { Label(serviceNotice, systemImage: "clock.badge.exclamationmark").font(.callout).foregroundStyle(palette.muted).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(palette.surface, in: RoundedRectangle(cornerRadius: 12)) }
-                if !status.isEmpty { HStack { Text(status).foregroundStyle(palette.muted); if let failed = lastFailedURL { Button("Retry") { load(url: failed, reset: cursor.books.isEmpty) } } } }
+                if !status.isEmpty { HStack { Text(status).foregroundStyle(palette.muted); if let failed = lastFailedURL { Button("Retry") { load(url: failed, reset: lastFailedReset) } } } }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 20)], spacing: 20) {
                     ForEach(cursor.books) { book in
                         HStack(alignment: .top, spacing: 16) {
@@ -86,7 +87,7 @@ struct DiscoveryView: View {
                 let response = try await Gutenberg.fetch(url); try Task.checkCancellation(); guard generation == token else { return }
                 try cursor.accept(response, reset: reset)
                 if query.trimmingCharacters(in: .whitespaces).isEmpty, reset, let store = model.store { try? JSONEncoder().encode(response).write(to: store.root.appendingPathComponent("gutenberg-cache.json"), options: .atomic) }
-            } catch { if !Task.isCancelled && generation == token { status = error.localizedDescription; lastFailedURL = url } }
+            } catch { if !Task.isCancelled && generation == token { status = error.localizedDescription; lastFailedURL = url; lastFailedReset = reset } }
             if generation == token { loading = false }
         }
     }

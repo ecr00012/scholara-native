@@ -42,6 +42,7 @@ struct DefinitionCard: View {
         .background(palette.card, in: RoundedRectangle(cornerRadius: 24))
         .overlay { RoundedRectangle(cornerRadius: 24).stroke(palette.outline, lineWidth: 1) }
         .shadow(color: .black.opacity(0.10), radius: 22, y: 8)
+        .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
         .sheet(isPresented: $editing) {
             DefinitionEditor(entry: entry) { entry in state.definition = entry.stored; state.saveDefinition(dismiss: false); editing = false }
                 .environment(\.readingPalette, palette)
@@ -66,7 +67,16 @@ struct SpoilerShield: Shape {
         let scale = min(rect.width, rect.height) / 24
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x*scale, y: rect.minY + y*scale) }
         var p = Path()
-        p.move(to: point(12,22)); p.addCurve(to: point(20,12), control1: point(12,22), control2: point(20,18)); p.addLine(to: point(20,5)); p.addLine(to: point(12,2)); p.addLine(to: point(4,5)); p.addLine(to: point(4,12)); p.addCurve(to: point(12,22), control1: point(4,18), control2: point(12,22)); p.closeSubpath()
+        // Lucide Shield geometry from the original application's icon package (ISC).
+        p.move(to: point(20,13))
+        p.addCurve(to: point(12.34,21.95), control1: point(20,18), control2: point(16.5,20.5))
+        p.addQuadCurve(to: point(11.67,21.94), control: point(12,22.07))
+        p.addCurve(to: point(4,13), control1: point(7.5,20.5), control2: point(4,18))
+        p.addLine(to: point(4,6)); p.addQuadCurve(to: point(5,5), control: point(4,5))
+        p.addCurve(to: point(11.24,2.28), control1: point(7,5), control2: point(9.5,3.8))
+        p.addQuadCurve(to: point(12.76,2.28), control: point(12,1.72))
+        p.addCurve(to: point(19,5), control1: point(14.51,3.81), control2: point(17,5))
+        p.addQuadCurve(to: point(20,6), control: point(20,5)); p.closeSubpath()
         if checked { p.move(to: point(9,12)); p.addLine(to: point(11,14)); p.addLine(to: point(15,10)) }
         return p
     }

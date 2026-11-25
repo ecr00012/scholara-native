@@ -27,14 +27,14 @@ public struct DictionaryEntry: Codable, Sendable {
             if prefix.count < 120 { pronunciation = String(body[body.index(after: first)..<second]).trimmingCharacters(in: .whitespaces); body = String(body[body.index(after: second)...]).trimmingCharacters(in: .whitespaces) }
         }
         let pos = "(?:plural noun|singular noun|noun|verb|adjective|adverb|pronoun|determiner|preposition|conjunction|interjection|exclamation|auxiliary verb|modal verb|abbreviation)"
-        let pattern = "(?<![\\p{L}])\\(?" + pos + "(?:, " + pos + ")*\\)?(?=\\s)"
+        let pattern = "(?m)^\\s*\\(?" + pos + "(?:, " + pos + ")*\\)?(?=\\s)"
         let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
         let ns = body as NSString
         let matches = regex?.matches(in: body, range: NSRange(location: 0, length: ns.length)) ?? []
         var senses: [DictionarySense] = []
         for (index, match) in matches.enumerated() {
             let start = NSMaxRange(match.range); let end = index + 1 < matches.count ? matches[index + 1].range.location : ns.length
-            let tag = ns.substring(with: match.range).trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+            let tag = ns.substring(with: match.range).trimmingCharacters(in: CharacterSet(charactersIn: "() \n\r\t"))
             let gloss = ns.substring(with: NSRange(location: start, length: end-start)).trimmingCharacters(in: .whitespacesAndNewlines)
             if !gloss.isEmpty { senses.append(DictionarySense(partOfSpeech: tag, gloss: gloss)) }
         }

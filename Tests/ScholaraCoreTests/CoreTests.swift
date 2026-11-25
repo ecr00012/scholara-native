@@ -161,7 +161,11 @@ final class CoreTests {
     }
     func testEmbeddingAndSemanticSearchOnThisMac() async throws {
         guard NLEmbedding.sentenceEmbedding(for: .english) != nil else { throw CheckSkip("English sentence model is not installed on this Mac") }
-        let store = try store(); let imported = try book(store)
+        let store = try store(); let imported = try book(store, format: "epub")
+        let epub = try BookImporter.epub(imported)
+        // Genuine English, not lorem ipsum: language recognition varies by OS model.
+        let prose = "Reading a book helps us understand the thoughts and experiences of other people. A thoughtful reader asks questions about the story and studies the author's argument. The library contains books about history, science, art, and the natural world. We can compare passages, take notes, and discuss the evidence with other readers."
+        for chapter in epub.chapters { try Data("<html><body><p>\(prose)</p></body></html>".utf8).write(to: URL(fileURLWithPath: chapter.path)) }
         try await NativeIndex.build(book: imported, store: store) { _ in }
         try checkEqual(try store.books()[0].indexStatus, "ready")
         let passages = try store.passages(bookID: imported.id)

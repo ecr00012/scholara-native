@@ -33,6 +33,15 @@ func checkThrows<T>(_ expression: @autoclosure () throws -> T, file: StaticStrin
         var failures = 0, passed = 0, skipped = 0
         let suite = CoreTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("testEPUB2NestedNavigationLabels", { try suite.testEPUB2NestedNavigationLabels() }),
+            ("testDiscoveryCursorIsAtomicDeduplicatesAndSecuresURLs", { try suite.testDiscoveryCursorIsAtomicDeduplicatesAndSecuresURLs() }),
+            ("testDiscoveryMaintenanceBackoffAndCatalogueRemainIndependent", { try await suite.testDiscoveryMaintenanceBackoffAndCatalogueRemainIndependent() }),
+            ("testGutenbergDownloadFallsBackImportsAndNeverEmbeds", { try await suite.testGutenbergDownloadFallsBackImportsAndNeverEmbeds() }),
+            ("testGutenbergRejectsMaintenanceHTMLWithoutImporting", { try await suite.testGutenbergRejectsMaintenanceHTMLWithoutImporting() }),
+            ("testDictionaryFieldsRoundTripAndLegacyTextSurvives", { try suite.testDictionaryFieldsRoundTripAndLegacyTextSurvives() }),
+            ("testReadingModesAndIndependentOffsetsPersist", { try suite.testReadingModesAndIndependentOffsetsPersist() }),
+            ("testPaginationCoversAllTextFitsImagesAndPreservesAnchor", { try suite.testPaginationCoversAllTextFitsImagesAndPreservesAnchor() }),
+
             ("testModelPathsAreConfigurableAndRoundTripWithoutAllowlist", { try suite.testModelPathsAreConfigurableAndRoundTripWithoutAllowlist() }),
             ("testInvalidModelConfigurationDoesNotOverwriteExistingFile", { try suite.testInvalidModelConfigurationDoesNotOverwriteExistingFile() }),
             ("testPDFImportCopiesFileAndDoesNotEmbed", { try suite.testPDFImportCopiesFileAndDoesNotEmbed() }),

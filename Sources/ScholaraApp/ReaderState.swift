@@ -16,6 +16,8 @@ final class ReaderState: ObservableObject {
     @Published var anchor = ""
     var selectionPosition: Int?
     var jumpAnchor = ""
+    var pendingScrollAnchor: Int?
+    var unchangedScrollAnchor: Int?
     @Published var pageText = ""
     @Published var notes: [Note] = []
     @Published var words: [Vocabulary] = []
@@ -86,6 +88,16 @@ final class ReaderState: ObservableObject {
         } else { go(position + delta) }
     }
     func changeReadingMode(_ mode: String) {
+        guard mode != readingMode else { return }
+        if epub != nil {
+            if mode == "pages", let anchor = unchangedScrollAnchor { pageOffset = anchor; unchangedScrollAnchor = nil }
+            else if mode == "pages", let view = textView, let manager = view.layoutManager, let container = view.textContainer {
+                let origin = view.visibleRect.origin
+                let point = NSPoint(x: max(0, origin.x - view.textContainerInset.width), y: max(0, origin.y - view.textContainerInset.height))
+                let glyph = manager.glyphIndex(for: point, in: container)
+                pageOffset = manager.numberOfGlyphs > 0 ? manager.characterIndexForGlyph(at: min(glyph,manager.numberOfGlyphs-1)) : 0
+            } else { pendingScrollAnchor = pageOffset; unchangedScrollAnchor = pageOffset }
+        }
         readingMode = mode
         do { try store.saveReadingMode(book.id, mode: mode) } catch { self.error = error.localizedDescription }
     }
@@ -104,7 +116,7 @@ final class ReaderState: ObservableObject {
     func pageChanged(_ index: Int) {
         guard index != position else { return }; position = index; offset = 0; pageText = pdf?.page(at: index)?.string ?? ""; saveSoon()
     }
-    func scrollChanged(_ offset: Int) { if self.offset != offset { self.offset = offset; saveSoon() } }
+    func scrollChanged(_ offset: Int) { if self.offset != offset { unchangedScrollAnchor = nil; self.offset = offset; saveSoon() } }
     func saveSoon() {
         saveTask?.cancel(); saveTask = Task { try? await Task.sleep(for: .milliseconds(350)); guard !Task.isCancelled else { return }; flush() }
     }
@@ -135,9 +147,9 @@ final class ReaderState: ObservableObject {
     func findNext() {
         guard !find.isEmpty else { return }
         if let pdf {
-            let found = pdf.findString(find, withOptions: .caseInsensitive)
-            guard !found.isEmpty else { return }
-            let next = found.first { selection in guard let page = selection.pages.first else { return false }; return pdf.index(for: page) > position } ?? found[0]
+            let next = pdf.findString(find, fromSelection: pdfView?.currentSelection, withOptions: .caseInsensitive)
+                ?? pdf.findString(find, fromSelection: nil, withOptions: .caseInsensitive)
+            guard let next else { return }
             pdfView?.setCurrentSelection(next, animate: true); pdfView?.scrollSelectionToVisible(nil)
         } else if let textView {
             let text = textView.string as NSString
@@ -227,11 +239,15 @@ struct PDFReader: NSViewRepresentable {
     }
 }
 
+final class ReaderScrollView: NSScrollView {
+    var afterLayout: ((ReaderScrollView) -> Void)?
+    override func layout() { super.layout(); afterLayout?(self) }
+}
 struct EPUBReader: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     func makeCoordinator() -> Coordinator { Coordinator(state: state) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = true; scroll.backgroundColor = state.palette.backgroundNS
+        let scroll = ReaderScrollView(); scroll.afterLayout = { [weak coordinator = context.coordinator] scroll in coordinator?.layout(scroll) }; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = true; scroll.backgroundColor = state.palette.backgroundNS
         let text = ReaderTextView(frame: .zero); text.isEditable = false; text.isSelectable = true; text.isRichText = true; text.usesFindBar = true; text.isVerticallyResizable = true; text.isHorizontallyResizable = false; text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true; text.textContainerInset = NSSize(width: 44, height: 34); text.delegate = context.coordinator
         text.minSize = NSSize(width: 0, height: 0); text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         scroll.documentView = text; state.textView = text
@@ -252,11 +268,14 @@ struct EPUBReader: NSViewRepresentable {
                 }
             }
             text.textStorage?.setAttributedString(attributed)
-            text.layoutManager?.ensureLayout(for: text.textContainer!)
-            if changedChapter || !context.coordinator.restored {
-                scroll.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(state.offset))); scroll.reflectScrolledClipView(scroll.contentView); context.coordinator.restored = true
+            if changedChapter || !context.coordinator.restored || state.pendingScrollAnchor != nil {
+                context.coordinator.restoreOffset = state.offset
+                context.coordinator.restoreAnchor = state.pendingScrollAnchor
+                context.coordinator.needsRestore = true
+                state.pendingScrollAnchor = nil
             }
             context.coordinator.updating = false
+            scroll.needsLayout = true
         }
         if let quote = state.jumpToQuote, !quote.isEmpty {
             if let range = AnnotationAnchor.range(quote: quote, anchor: state.jumpAnchor, in: text.string) { text.setSelectedRange(range); text.scrollRangeToVisible(range) }
@@ -267,6 +286,28 @@ struct EPUBReader: NSViewRepresentable {
         let state: ReaderState
         var key = ""; var position = -1; var restored = false; var updating = false
         var observer: NSObjectProtocol?
+        var needsRestore = false; var restoreOffset = 0; var restoreAnchor: Int?
+        private var layingOut = false
+        func layout(_ scroll: NSScrollView) {
+            guard !layingOut, scroll.contentSize.width > 200, let text = scroll.documentView as? NSTextView,
+                  let manager = text.layoutManager, let container = text.textContainer else { return }
+            layingOut = true; updating = true
+            defer { layingOut = false; updating = false }
+            text.setFrameSize(NSSize(width: scroll.contentSize.width, height: text.frame.height))
+            container.containerSize = NSSize(width: max(120, scroll.contentSize.width - 2 * text.textContainerInset.width), height: .greatestFiniteMagnitude)
+            manager.ensureLayout(for: container)
+            text.setFrameSize(NSSize(width: scroll.contentSize.width, height: max(scroll.contentSize.height, manager.usedRect(for: container).height + 2 * text.textContainerInset.height)))
+            if needsRestore {
+                var y = CGFloat(restoreOffset)
+                if let anchor = restoreAnchor, text.string.utf16.count > 0 {
+                    let glyph = manager.glyphIndexForCharacter(at: min(anchor,text.string.utf16.count-1))
+                    y = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY + text.textContainerInset.height
+                }
+                needsRestore = false; restored = true
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0,min(y,text.frame.height-scroll.contentSize.height))))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
         init(state: ReaderState) { self.state = state }
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
         @MainActor func observe(_ scroll: NSScrollView) {

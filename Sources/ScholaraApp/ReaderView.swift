@@ -72,8 +72,8 @@ struct ReaderView: View {
         .toolbar {
             Button { state.flush(); model.activeBookID = nil; model.refresh() } label: { Label("Library", systemImage: "books.vertical") }
             Picker("Reading layout", selection: Binding(get: { state.readingMode }, set: { state.changeReadingMode($0) })) {
-                Label("Scroll", systemImage: "scroll").tag("scroll")
-                Label("Pages", systemImage: "book.pages").tag("pages")
+                Text("Scroll").tag("scroll")
+                Text("Pages").tag("pages")
             }.pickerStyle(.segmented).frame(width: 170).help("Scroll through the book, or turn one page at a time")
             Button { model.toggleReaderMode() } label: { Label(readerOnly ? "Show Study Panel" : "Focus on Reading", systemImage: "sidebar.right") }
             Menu { BookMenu(book: model.activeBook ?? book); if book.format == "pdf" { Divider(); Button("Print…") { state.pdfView?.print(with: NSPrintInfo.shared, autoRotate: true) } } } label: { Image(systemName: "ellipsis.circle") }

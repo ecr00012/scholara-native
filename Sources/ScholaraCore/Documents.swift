@@ -43,6 +43,13 @@ public struct EPUBBook: Sendable {
                 if let href = link.attributes["href"], let url = try? containedURL(href, relativeTo: navURL.deletingLastPathComponent(), root: destination) { labels[url.path] = link.text.trimmingCharacters(in: .whitespacesAndNewlines) }
             }
         }
+        if let ncx = items.first(where: { $0.attributes["media-type"] == "application/x-dtbncx+xml" }), let href = ncx.attributes["href"] {
+            let url = try containedURL(href, relativeTo: base, root: destination)
+            let navigation = NCXParser(); try navigation.parse(Data(contentsOf: url))
+            for (href, label) in navigation.labels {
+                if let target = try? containedURL(href, relativeTo: url.deletingLastPathComponent(), root: destination), labels[target.path] == nil { labels[target.path] = label }
+            }
+        }
         chapters = chapters.map { Chapter(id: $0.id, title: labels[$0.path] ?? $0.title, path: $0.path) }
         let coverID = parser.elements.first { $0.name == "meta" && $0.attributes["name"] == "cover" }?.attributes["content"]
         let coverItem = items.first { ($0.attributes["properties"] ?? "").contains("cover-image") || (coverID != nil && $0.attributes["id"] == coverID) }
@@ -187,5 +194,28 @@ public enum BookImporter {
     public static func epub(_ book: Book) throws -> EPUBBook {
         let file = URL(fileURLWithPath: book.path)
         return try EPUBBook.open(at: file, extractedTo: file.deletingLastPathComponent().appendingPathComponent("EPUB"))
+    }
+}
+
+/// EPUB 2 navigation points can be nested; each label belongs to its own point.
+final class NCXParser: NSObject, XMLParserDelegate {
+    var labels: [(String, String)] = []
+    private var points: [(href: String, label: String)] = []
+    private var inText = false
+    func parse(_ data: Data) throws {
+        let parser = XMLParser(data: data); parser.shouldResolveExternalEntities = false; parser.delegate = self
+        guard parser.parse() else { throw ScholaraError("Could not read the EPUB table of contents.") }
+    }
+    func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?, attributes: [String:String]) {
+        let name = name.components(separatedBy: ":").last!
+        if name == "navPoint" { points.append(("", "")) }
+        if name == "text" { inText = true }
+        if name == "content", !points.isEmpty { points[points.count-1].href = attributes["src"] ?? "" }
+    }
+    func parser(_ parser: XMLParser, foundCharacters text: String) { if inText, !points.isEmpty { points[points.count-1].label += text } }
+    func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
+        let name = name.components(separatedBy: ":").last!
+        if name == "text" { inText = false }
+        if name == "navPoint", let point = points.popLast(), !point.href.isEmpty { labels.append((point.href, point.label.trimmingCharacters(in: .whitespacesAndNewlines))) }
     }
 }
