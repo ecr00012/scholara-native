@@ -1,0 +1,17 @@
+name: Native macOS
+on: [push, pull_request]
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: swift run ScholaraChecks
+      - name: Package native app
+        run: scripts/build-app.sh
+      - name: Archive app
+        run: ditto -c -k --sequesterRsrc --keepParent build/Scholara.app build/Scholara-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Scholara-macOS
+          path: build/Scholara-macOS.zip

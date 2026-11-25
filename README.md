@@ -1,243 +1,59 @@
-# Scholara
+# Scholara for macOS
 
-Scholara is a local-first desktop reading app for PDF and EPUB books. It combines a focused reader, notes and highlights, dictionary lookup, public-domain discovery through Gutendex and Project Gutenberg, and an AI reading assistant powered by OpenRouter.
+A native, local-first PDF and EPUB reading and study application. SwiftUI and AppKit replace the entire Tauri/React application; PDFKit renders PDFs and TextKit lays out EPUB text without a WebView. Requires macOS 14 or later.
 
-The app is built as a Tauri desktop application: your library files, notes, preferences, conversation history, and search indexes live on your machine, while chat completions are sent to OpenRouter only when you use AI features.
-
-## Features
-
-- Import PDF and EPUB books by file picker or drag and drop.
-- Read books in a full desktop reader with PDF and EPUB support.
-- Highlight passages, write notes, and review saved annotations.
-- Use a local WordNet-backed dictionary lookup flow.
-- Browse popular public-domain books from Gutendex.
-- Download EPUB files from Project Gutenberg into the local Scholara library.
-- Chat with an AI reading assistant about the active book.
-- Search book text and notes through assistant tools.
-- Index books locally for retrieval-augmented responses.
-- Choose between curated OpenRouter models from settings.
-- Store the OpenRouter API key in the operating system keychain.
-
-## Tech Stack
-
-Scholara uses a Rust desktop shell with a modern React front end.
-
-| Area                         | Technology                                                   |
-| ---------------------------- | ------------------------------------------------------------ |
-| Desktop runtime              | Tauri 2                                                      |
-| Native backend               | Rust, Tokio, reqwest, rusqlite                               |
-| Front end                    | React 19, TypeScript, Vite                                   |
-| Styling                      | Tailwind CSS, shadcn-style components, Base UI, lucide-react |
-| State                        | Zustand                                                      |
-| Database                     | SQLite via `@tauri-apps/plugin-sql`                          |
-| PDF rendering and extraction | `pdfjs-dist`                                                 |
-| EPUB reading and extraction  | `epubjs`                                                     |
-| Local embeddings             | `@xenova/transformers` with ONNX                             |
-| AI chat                      | OpenRouter Chat Completions API                              |
-| Testing                      | Vitest, Testing Library, Playwright                          |
-
-## AI and OpenRouter
-
-Scholara uses [OpenRouter](https://openrouter.ai/) for model access. The Rust backend calls:
-
-```text
-https://openrouter.ai/api/v1/chat/completions
-```
-
-The app supports both streaming and non-streaming chat completion requests. Streaming responses are parsed in the renderer from OpenAI-compatible server-sent events, including tool-call deltas.
-
-OpenRouter requests include:
-
-- `Authorization: Bearer <your key>`
-- `HTTP-Referer: https://scholara.app`
-- `X-Title: Scholara`
-
-The OpenRouter API key is not stored in source files or browser storage. It is saved through the native keyring under the `scholara` service with the `openrouter_api_key` account.
-
-### Supported Models
-
-The in-app model picker is intentionally curated to models that support tool calling.
-
-Current model IDs:
-
-- `meta-llama/llama-3.3-70b-instruct:free` default
-- `openai/gpt-oss-120b:free`
-- `anthropic/claude-haiku-4.5`
-- `anthropic/claude-sonnet-4.6`
-- `openai/gpt-4o-mini`
-- `google/gemini-2.0-flash-001`
-
-Model availability, pricing, and exact capabilities are controlled by OpenRouter and may change over time. If a model starts failing, update `src/agent/models.ts`.
-
-## Local Embeddings
-
-Scholara indexes book text locally for retrieval-augmented chat. It uses:
-
-```text
-Xenova/all-MiniLM-L6-v2
-```
-
-Important details:
-
-- The embedding model runs locally through `@xenova/transformers`.
-- Remote model downloads are disabled at runtime.
-- Model assets are bundled from `src-tauri/resources/models/Xenova/all-MiniLM-L6-v2`.
-- The quantized ONNX model is used.
-- Embeddings are 384-dimensional.
-- Text is embedded with mean pooling and normalization.
-- Book chunks are stored in SQLite as base64-encoded `Float32Array` values.
-- The embedding index ID is `Xenova/all-MiniLM-L6-v2:base64-embeddings-v1`.
-
-Books are indexed when opened. The indexer extracts text from PDF or EPUB files, chunks it into roughly 1,500-character passages with 200 characters of overlap, embeds in small batches, and stores chunk text plus vectors in the local database. If the file hash and embedding index ID have not changed, Scholara reuses the existing index.
-
-The settings screen includes a "Re-embed all books on next open" action for refreshing stale or incompatible indexes.
-
-## Gutendex and Project Gutenberg
-
-Scholara uses [Gutendex](https://gutendex.com/) to discover public-domain books from Project Gutenberg.
-
-The Gutendex panel fetches popular books from:
-
-```text
-https://gutendex.com/books?sort=popular&page=<page>
-```
-
-For each book, Scholara keeps a small normalized subset of metadata:
-
-- Gutenberg ID
-- title
-- authors
-- subjects
-- bookshelves
-- download count
-- cover image URL
-
-When you download a book, Scholara fetches the EPUB directly from Project Gutenberg. It first tries the image EPUB and then falls back to the no-image EPUB:
-
-```text
-https://www.gutenberg.org/ebooks/<id>.epub.images
-https://www.gutenberg.org/ebooks/<id>.epub.noimages
-```
-
-Downloaded Gutenberg books are copied into the app data directory and added to the same local library as manually imported files.
-
-## Local Data
-
-Scholara is local-first. The app stores user data in the platform app data directory.
-
-Local data includes:
-
-- `scholara.db`, the SQLite database
-- imported and downloaded book files
-- generated or extracted covers
-- notes, highlights, preferences, vocabulary, threads, and messages
-- book chunk indexes and embedding state
-
-The settings screen shows the exact local data directory and includes a button to reveal it in your file manager.
-
-## Getting Started
-
-### Prerequisites
-
-Install:
-
-- Node.js and npm
-- Rust and Cargo
-- Tauri 2 system dependencies for your operating system
-
-For platform-specific Tauri prerequisites, see the Tauri documentation for Linux, macOS, or Windows.
-
-### Install Dependencies
+## Build and run
 
 ```sh
-npm install
+swift build --product Scholara
+swift run ScholaraChecks
+scripts/build-app.sh
+open build/Scholara.app
 ```
 
-### Run the Desktop App
+A current Swift 6 toolchain is required (Xcode or Apple Command Line Tools). The checks use a small executable runner so full Xcode/XCTest is not required. The only third-party runtime dependency is ZIPFoundation, pinned in Package.resolved. Open Package.swift in Xcode to work in the IDE.
 
-```sh
-npm run tauri:dev
-```
+The packaging script signs locally with an ad-hoc identity. Set `SIGNING_IDENTITY` to a Developer ID identity for distribution signing. The local build is not notarized. The package is built for the host architecture; the supplied build is for Apple silicon.
 
-This starts Vite and launches the Tauri desktop shell.
+## Reading and study
 
-### Configure OpenRouter
+- Import PDFs and EPUBs through the native file picker, drag and drop, or Finder Open With.
+- Choose Paper (white) or Soft (the original Scholara cream-and-ink palette) in Settings → Reading.
+- Choose Scroll or Pages in the reader toolbar. PDF pagination uses PDFKit; EPUB pagination uses fixed-size TextKit containers. Reading layout is stored per book.
+- Select text to highlight it, attach a note, or define a word using the macOS dictionary. Notes and vocabulary are also available across the library.
+- The rounded Scholar / Notes / Dictionary study panel can be hidden for focused reading. The Scholar button remains available in focus mode.
+- The first upload prompts for local embedding consent. “Not Now” does not queue work. Each book has a three-dot **Embed to Enable Agent Scholar** action, progress, cancel, retry, and re-embed controls. Reading never starts embedding automatically.
+- Embeddings use Apple's local sentence models, pooled by sentence, stored as binary Float32 vectors. Semantic retrieval is combined with SQLite FTS5. The UI runs only one embedding job at a time.
+- Scholar supports streaming OpenRouter responses, multiple conversations, a shield spoiler toggle, book/notes tools, editable study preferences, and local study memory. Recent questions are remembered without extra background AI requests; this can be disabled in Settings.
 
-1. Create an API key in OpenRouter.
-2. Open Scholara.
-3. Go to Settings.
-4. Paste the key into the OpenRouter API key field.
-5. Save it.
+## OpenRouter configuration
 
-The key is saved in the native keychain. You do not need a `.env` file for normal use.
+Settings → AI & Models lets you add/edit/remove arbitrary OpenRouter model paths and labels, choose the default, and set whether each model supports tools. Models without tools still receive locally retrieved book context. An optional live catalogue helps discovery but never acts as an allowlist.
 
-## Scripts
+The configuration is stored in `models.json` in the native data folder. The UI can reveal, reload, import, and export it. Invalid or duplicate paths are reported without overwriting the saved file. Existing conversations keep their selected paths even when those paths are removed from the picker.
 
-| Command                 | Description                                |
-| ----------------------- | ------------------------------------------ |
-| `npm run dev`           | Start the Vite dev server only             |
-| `npm run tauri:dev`     | Start the full Tauri desktop app           |
-| `npm run build`         | Type-check and build the web assets        |
-| `npm run tauri:build`   | Build a distributable desktop app          |
-| `npm run test`          | Run Vitest unit tests                      |
-| `npm run test:watch`    | Run Vitest in watch mode                   |
-| `npm run test:e2e`      | Build the e2e app and run Playwright tests |
-| `npm run test:e2e:ui`   | Run Playwright with the UI                 |
-| `npm run test:all`      | Run unit and e2e tests                     |
-| `npm run build:wordnet` | Build the bundled WordNet SQLite resource  |
-| `npm run lint`          | Run ESLint                                 |
-| `npm run format`        | Format the repository with Prettier        |
+API keys live in the macOS Keychain under service `scholara-native`, account `openrouter_api_key`. The explicit “Copy Key from Original Scholara” action reads the old entry and copies it; the old entry remains unchanged. No API key is included in repository files or request error bodies.
 
-## Project Structure
+## Discovery
 
-```text
-src/
-  agent/              OpenRouter client, prompts, session handling, tools
-  components/ui/      Shared UI primitives
-  db/                 SQLite access helpers and table-specific modules
-  dictionary/         Dictionary lookup logic
-  ipc/                Renderer-side Tauri command wrappers
-  lib/                Shared utilities and extraction helpers
-  rag/                Text extraction, chunking, embedding, and indexing
-  screens/            Library, reader, Gutenberg, and settings UI
+Gutendex supplies the catalogue; Project Gutenberg supplies cover images and EPUB downloads. Successful cover responses and the popular catalogue are cached locally. Pagination follows the API's next link and advances only after success. HTTP 404 can fall back to alternate EPUB editions; maintenance responses respect Retry-After and do not hammer the service. During an upstream outage, the app shows a clear notice and preserves cached data and the current page.
 
-src-tauri/
-  migrations/         SQLite schema migrations
-  resources/          Bundled WordNet and embedding model assets
-  src/commands/       Rust Tauri commands for files, AI, secrets, Gutenberg
-  tauri.conf.json     Tauri application configuration
+## Local data and migration
 
-tests/
-  agent/              AI, prompts, token budget, and tool tests
-  components/         Component tests
-  db/                 Database tests
-  lib/                Utility and parser tests
-  playwright/         End-to-end reader and UI tests
-  rag/                Retrieval and embedding pipeline tests
-```
+The native app stores its library in `~/Library/Application Support/ScholaraNative/`. This is separate from the original Tauri app. Settings → Library & Data offers an explicit, read-only import of an old data folder containing `scholara.db`. The import copies books, notes, vocabulary, conversations, preferences, and profiles and is recorded to avoid duplicate imports.
 
-## Architecture Notes
+Native annotation ranges and legacy PDF geometry are supported. Legacy EPUB CFIs map to spine sections; exact browser-specific text offsets are not guaranteed to map. Legacy MiniLM embeddings are not reused; each book requires an explicit native embedding action.
 
-The React renderer owns the user interface, local state, reading experience, and most client-side indexing orchestration. Tauri commands provide native capabilities that the browser sandbox cannot handle directly: filesystem access, app data paths, SQLite setup, keychain access, network calls that need stable native behavior, and Project Gutenberg downloads.
+Back up the data folder with Scholara closed. Keychain credentials are separate. For development, `SCHOLARA_DATA_DIRECTORY=/absolute/test/folder` runs against an isolated library.
 
-AI chat is intentionally split across layers. The Rust side owns the authenticated OpenRouter transport and redacts API keys from error strings. The TypeScript side owns message assembly, streamed tool-call parsing, retrieval context, and assistant interaction state.
+## Compatibility boundaries
 
-Retrieval is also local-first. Scholara extracts text from the active book, chunks it, embeds it with the bundled MiniLM model, and stores both chunk text and vectors locally. Assistant tools can then search the current book or notes without sending an entire book to the model.
+EPUBs use native flowing text, headings, emphasis, lists, images, links and navigation. Browser CSS, scripted content, fixed-layout EPUBs, SVG illustrations, embedded fonts, and interactive media are not a browser-equivalent rendering target. DRM-encrypted files are unsupported. PDFs with no extractable text need OCR before embedding. Apple sentence-model language availability depends on macOS. Spoiler filtering is page-based for PDFs and spine-section-based for EPUBs; model compliance with prose instructions cannot be guaranteed.
 
-## Privacy
+Live paid OpenRouter requests are not part of the automated tests. Signing/notarization for public distribution requires the owner's Apple developer credentials.
 
-Scholara stores your library and reading data locally. Imported books, downloaded Gutenberg EPUBs, notes, highlights, SQLite data, covers, and embedding vectors remain on your machine.
+## Provenance and iteration notes
 
-When AI chat is used, the selected messages and any relevant retrieved context are sent to OpenRouter for completion. Your OpenRouter key is read from the operating system keychain by the Tauri backend and is never committed to the repository.
+The original source snapshot is preserved in the initial commit. The sibling source repository is not modified. See [source provenance](docs/native/ORIGIN.md) and [iteration notes](docs/native/ITERATIONS.md).
 
-## Development Notes
-
-- The app expects the local embedding model assets to be present under `src-tauri/resources/models`.
-- `env.allowRemoteModels` is disabled for embeddings, so missing model files will break local indexing rather than downloading at runtime.
-- SQLite migrations live in `src-tauri/migrations`.
-- The Tauri bundle includes `resources/wordnet.sqlite` and `resources/models/**/*`.
-- The app supports PDF and EPUB imports; other dropped file types are rejected.
-
-## License
-
-Scholara is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Primary API references: [Apple NLEmbedding](https://developer.apple.com/documentation/naturallanguage/nlembedding), [ZIPFoundation](https://github.com/weichsel/ZIPFoundation), [Gutendex](https://github.com/garethbjohnson/gutendex), [OpenRouter](https://openrouter.ai/docs/api-reference/chat-completion).
