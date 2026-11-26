@@ -33,6 +33,11 @@ func checkThrows<T>(_ expression: @autoclosure () throws -> T, file: StaticStrin
         var failures = 0, passed = 0, skipped = 0
         let suite = CoreTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("testWholeBookPageNumbersCrossChapterBoundaries", { try suite.testWholeBookPageNumbersCrossChapterBoundaries() }),
+            ("testWholeBookPaginationRunsInBackgroundAndRespondsToFontSize", { try await suite.testWholeBookPaginationRunsInBackgroundAndRespondsToFontSize() }),
+            ("testSVGFrontCoverLabelsAndEmptySections", { try suite.testSVGFrontCoverLabelsAndEmptySections() }),
+            ("testReaderFontPreservesEmphasisAndTextAnchors", { try suite.testReaderFontPreservesEmphasisAndTextAnchors() }),
+            ("testGutenbergExplicitRetryRecoversBeforeBackoffExpires", { try await suite.testGutenbergExplicitRetryRecoversBeforeBackoffExpires() }),
             ("testEPUB2NestedNavigationLabels", { try suite.testEPUB2NestedNavigationLabels() }),
             ("testDiscoveryCursorIsAtomicDeduplicatesAndSecuresURLs", { try suite.testDiscoveryCursorIsAtomicDeduplicatesAndSecuresURLs() }),
             ("testDiscoveryMaintenanceBackoffAndCatalogueRemainIndependent", { try await suite.testDiscoveryMaintenanceBackoffAndCatalogueRemainIndependent() }),

@@ -20,9 +20,9 @@ The packaging script creates both `build/Scholara.app` and `build/Scholara-macOS
 ## Reading and study
 
 - Import PDFs and EPUBs through the native file picker, drag and drop, or Finder Open With.
-- Choose Paper (white) or Soft (the original Scholara cream-and-ink palette) in Settings → Reading.
-- Choose Scroll or Pages in the reader toolbar. PDF pagination uses PDFKit; EPUB pagination uses fixed-size TextKit containers. Reading layout is stored per book.
-- Select text to highlight it, attach a note, or define a word using the macOS dictionary. Notes and vocabulary are also available across the library.
+- Open the reader’s top-right three-dot menu → Style for Appearance: Paper (white), Soft (the original cream-and-ink palette), or Dark. Choose EPUB font family and size with a live preview. Appearance is also available in Settings → Reading.
+- Choose Scroll or Pages in the reader’s three-dot menu → Reading mode. PDF pagination uses PDFKit; EPUB pagination uses fixed-size TextKit containers. Reading layout is stored per book. Page mode shows Page X of Y across the entire book, recalculated in the background when font or window size changes. Opening a book focuses the reader for immediate keyboard navigation, including across chapter boundaries.
+- Select text to highlight it, attach a note, or define a word using the macOS dictionary. Notes and vocabulary are also available across the library. The rounded note editor, insertion point, and saved-note cards follow the selected appearance.
 - The rounded Scholar / Notes / Dictionary study panel can be hidden for focused reading. The Scholar button remains available in focus mode.
 - The first upload prompts for local embedding consent. “Not Now” does not queue work. Each book has a three-dot **Embed to Enable Agent Scholar** action, progress, cancel, retry, and re-embed controls. Reading never starts embedding automatically.
 - Embeddings use Apple's local sentence models, pooled by sentence, stored as binary Float32 vectors. Semantic retrieval is combined with SQLite FTS5. The UI runs only one embedding job at a time.
@@ -38,7 +38,7 @@ API keys live in the macOS Keychain under service `scholara-native`, account `op
 
 ## Discovery
 
-Gutendex supplies the catalogue; Project Gutenberg supplies cover images and EPUB downloads. Successful cover responses and the popular catalogue are cached locally. Pagination follows the API's next link and advances only after success. HTTP 404 can fall back to alternate EPUB editions; maintenance responses respect Retry-After and do not hammer the service. During an upstream outage, the app shows a clear notice and preserves cached data and the current page.
+Gutendex supplies the catalogue; Project Gutenberg supplies cover images and EPUB downloads. Successful cover responses and the popular catalogue are cached locally. Pagination follows the API's next link and advances only after success. HTTP 404 can fall back to alternate EPUB editions; maintenance responses respect Retry-After and do not hammer the service. A service notice appears only after an unavailable response and clears after a successful cover/download request. Retry and Refresh explicitly probe recovery, even during automatic backoff; cached data and the current catalogue page are preserved.
 
 ## Local data and migration
 
@@ -50,7 +50,7 @@ Back up the data folder with Scholara closed. Keychain credentials are separate.
 
 ## Compatibility boundaries
 
-EPUBs use native flowing text, headings, emphasis, lists, images, links and navigation. Browser CSS, scripted content, fixed-layout EPUBs, SVG illustrations, embedded fonts, and interactive media are not a browser-equivalent rendering target. DRM-encrypted files are unsupported. PDFs with no extractable text need OCR before embedding. Apple sentence-model language availability depends on macOS. Spoiler filtering is page-based for PDFs and spine-section-based for EPUBs; model compliance with prose instructions cannot be guaranteed.
+EPUBs use native flowing text, headings, emphasis, lists, images, links and navigation. Browser CSS, scripted content, fixed-layout EPUBs, vector SVG illustrations (raster images wrapped in SVG are supported), embedded fonts, and interactive media are not a browser-equivalent rendering target. DRM-encrypted files are unsupported. PDFs with no extractable text need OCR before embedding. Apple sentence-model language availability depends on macOS. Spoiler filtering is page-based for PDFs and spine-section-based for EPUBs; model compliance with prose instructions cannot be guaranteed.
 
 Live paid OpenRouter requests are not part of the automated tests. Signing/notarization for public distribution requires the owner's Apple developer credentials.
 

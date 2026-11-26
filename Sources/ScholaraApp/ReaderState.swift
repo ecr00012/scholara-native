@@ -29,6 +29,7 @@ final class ReaderState: ObservableObject {
     @Published var definition = ""
     @Published var word = ""
     @Published var showDefinition = false
+    @Published var fontFamily = ReaderFont.serif
     @Published var fontSize: CGFloat = 19
     @Published var readingMode: String
     @Published var visiblePage = 0
@@ -41,12 +42,49 @@ final class ReaderState: ObservableObject {
     weak var pdfView: PDFView?
     weak var textView: NSTextView?
     private var saveTask: Task<Void, Never>?
-    private var chapterTask: Task<Void, Never>?
+    @Published private var bookPagination: BookPagination?
+    @Published private var paginationError: String?
+    private var paginationTask: Task<Void, Never>?
+    private var paginationWorker: Task<BookPagination, Error>?
+    private var paginationKey = ""
+    private var paginationCache: [String: BookPagination] = [:]
     var count: Int { pdf?.pageCount ?? epub?.chapters.count ?? 0 }
     var positionLabel: String {
-        let section = "\(book.format == "pdf" ? "Page" : "Section") \(position + 1) of \(count)"
-        return readingMode == "pages" && book.format == "epub" ? section + " · Page \(visiblePage + 1) of \(visiblePageCount)" : section
+        if book.format == "pdf" { return "Page \(position + 1) of \(count)" }
+        let chapter = "Chapter \(position + 1)"
+        guard readingMode == "pages" else { return chapter }
+        guard let pages = bookPagination else { return chapter + (paginationError == nil ? " · Counting pages…" : " · Page count unavailable") }
+        return chapter + " · Page \(pages.page(chapter: position, localPage: visiblePage)) of \(pages.total)"
     }
+    func updatePagination(size: NSSize) {
+        guard let epub, size.width > 0, size.height > 0 else { return }
+        let key = "\(size.width)-\(size.height)-\(fontSize)-\(fontFamily.rawValue)"
+        guard key != paginationKey else { return }
+        cancelPagination(); paginationKey = key; paginationError = nil
+        if let cached = paginationCache[key] { bookPagination = cached; return }
+        bookPagination = nil
+        let fontSize = fontSize, family = fontFamily
+        let worker = Task.detached(priority: .utility) {
+            try await Task.sleep(for: .milliseconds(180))
+            return try BookPagination.build(book: epub, size: size, fontSize: fontSize, fontFamily: family)
+        }
+        paginationWorker = worker
+        paginationTask = Task { [weak self] in
+            do {
+                let index = try await worker.value
+                try Task.checkCancellation()
+                guard let self, self.paginationKey == key else { return }
+                if self.paginationCache.count >= 4 { self.paginationCache.removeAll(keepingCapacity: true) }
+                self.paginationCache[key] = index; self.bookPagination = index
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError), let self, self.paginationKey == key else { return }
+                self.paginationError = error.localizedDescription
+            }
+        }
+    }
+    func cancelPagination() { paginationTask?.cancel(); paginationWorker?.cancel(); paginationKey = "" }
+    deinit { paginationTask?.cancel(); paginationWorker?.cancel() }
+
     init(book: Book, store: LibraryStore) { self.book = book; self.store = store; position = book.position; offset = book.offset; readingMode = book.readingMode; pageOffset = book.pageOffset }
     func load(fontSize: Double) async {
         self.fontSize = fontSize
@@ -64,9 +102,11 @@ final class ReaderState: ObservableObject {
         } catch { self.error = error.localizedDescription; loading = false }
     }
     func reloadStudy() { do { notes = try store.notes(bookID: book.id); words = try store.vocabulary(bookID: book.id) } catch { self.error = error.localizedDescription } }
-    func loadChapter() throws {
+    func loadChapter(direction: Int = 1) throws {
         guard let epub else { return }
-        let text = NSMutableAttributedString(attributedString: try epub.attributedChapter(position, fontSize: fontSize))
+        let readable = try epub.readableChapter(startingAt: position, direction: direction, fontSize: fontSize, fontFamily: fontFamily)
+        if readable.index != position { position = readable.index; offset = 0; pageOffset = direction < 0 ? Int.max : 0 }
+        let text = NSMutableAttributedString(attributedString: readable.text)
         text.addAttribute(.foregroundColor, value: palette.inkNS, range: NSRange(location: 0, length: text.length))
         chapterText = text; pageText = text.string
     }
@@ -74,9 +114,10 @@ final class ReaderState: ObservableObject {
         guard count > 0 else { return }
         let target = min(max(0, target), count - 1)
         if target != position { selection = ""; anchor = ""; selectionPosition = nil; find = "" }
+        let direction = target < position ? -1 : 1
         position = target; self.offset = offset; self.pageOffset = pageOffset
         if let pdf, let page = pdf.page(at: target) { pdfView?.go(to: page); pageText = page.string ?? "" }
-        else { do { try loadChapter() } catch { self.error = error.localizedDescription } }
+        else { do { try loadChapter(direction: direction) } catch { self.error = error.localizedDescription } }
         saveSoon()
     }
     func advance(_ delta: Int) {
@@ -165,7 +206,7 @@ struct PDFReader: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     func makeCoordinator() -> Coordinator { Coordinator(state: state) }
     func makeNSView(context: Context) -> PDFView {
-        let view = ReaderPDFView(); view.autoScales = true; view.displayMode = .singlePageContinuous; view.displayDirection = .vertical; view.displaysPageBreaks = true; view.backgroundColor = state.palette.backgroundNS
+        let view = ReaderPDFView(); view.focusOnAttach = true; view.autoScales = true; view.displayMode = .singlePageContinuous; view.displayDirection = .vertical; view.displaysPageBreaks = true; view.backgroundColor = state.palette.backgroundNS
         view.document = state.pdf; state.pdfView = view
         if let page = state.pdf?.page(at: state.position) { view.go(to: page) }
         context.coordinator.observe(view); return view
@@ -248,7 +289,7 @@ struct EPUBReader: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(state: state) }
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = ReaderScrollView(); scroll.afterLayout = { [weak coordinator = context.coordinator] scroll in coordinator?.layout(scroll) }; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = true; scroll.backgroundColor = state.palette.backgroundNS
-        let text = ReaderTextView(frame: .zero); text.isEditable = false; text.isSelectable = true; text.isRichText = true; text.usesFindBar = true; text.isVerticallyResizable = true; text.isHorizontallyResizable = false; text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true; text.textContainerInset = NSSize(width: 44, height: 34); text.delegate = context.coordinator
+        let text = ReaderTextView(frame: .zero); text.focusOnAttach = true; text.isEditable = false; text.isSelectable = true; text.isRichText = true; text.usesFindBar = true; text.isVerticallyResizable = true; text.isHorizontallyResizable = false; text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true; text.textContainerInset = NSSize(width: 44, height: 34); text.delegate = context.coordinator
         text.minSize = NSSize(width: 0, height: 0); text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         scroll.documentView = text; state.textView = text
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -257,7 +298,7 @@ struct EPUBReader: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let text = scroll.documentView as? NSTextView else { return }
         scroll.backgroundColor = state.palette.backgroundNS; text.backgroundColor = state.palette.backgroundNS
-        let key = "\(state.position)-\(state.fontSize)-\(state.palette.rawValue)-\(state.notes.map(\.id))"
+        let key = "\(state.position)-\(state.fontSize)-\(state.fontFamily.rawValue)-\(state.palette.rawValue)-\(state.notes.map(\.id))"
         if context.coordinator.key != key {
             let changedChapter = context.coordinator.position != state.position
             context.coordinator.key = key; context.coordinator.position = state.position; context.coordinator.updating = true

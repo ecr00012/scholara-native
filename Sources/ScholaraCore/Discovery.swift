@@ -44,6 +44,8 @@ public actor GutenbergHTTP {
         await withCheckedContinuation { waiting.append($0) }
     }
     private func release() { if waiting.isEmpty { active -= 1 } else { waiting.removeFirst().resume() } }
+    /// A deliberate user retry can probe recovery before the automatic backoff expires.
+    public func retryNow() { maintenanceUntil = nil }
     public func data(from url: URL) async throws -> Data {
         await acquire(); defer { release() }
         try Task.checkCancellation()
@@ -58,9 +60,10 @@ public actor GutenbergHTTP {
         }
         guard (200..<300).contains(http.statusCode) else { throw DiscoveryHTTPError(status: http.statusCode, message: "\(isGutenberg ? "Project Gutenberg" : "Gutendex") returned HTTP \(http.statusCode). Your library and current results are unchanged; retry later.") }
         guard data.count <= 200_000_000 else { throw ScholaraError("This book exceeds the 200 MB download limit.") }
+        if isGutenberg { maintenanceUntil = nil }
         return data
     }
-    private static var maintenanceError: DiscoveryHTTPError { DiscoveryHTTPError(status: 503, message: "Project Gutenberg is temporarily down for maintenance. Its cover images and EPUB downloads are unavailable. Cached books remain readable; try the download again after the service returns.") }
+    private static var maintenanceError: DiscoveryHTTPError { DiscoveryHTTPError(status: 503, message: "Project Gutenberg returned a service-unavailable response. Some covers or downloads could not load. You can retry to check whether the service has recovered.") }
 }
 public enum Gutenberg {
     public static func isBookHost(_ host: String?) -> Bool { guard let host else { return false }; return host == "gutenberg.org" || host.hasSuffix(".gutenberg.org") }

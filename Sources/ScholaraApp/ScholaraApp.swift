@@ -9,7 +9,7 @@ struct ScholaraApp: App {
     private var palette: ReadingPalette { ReadingPalette(rawValue: paletteName) ?? .soft }
     var body: some Scene {
         WindowGroup("Scholara", id: "library") {
-            RootView().environmentObject(model).environment(\.readingPalette, palette).preferredColorScheme(.light).frame(minWidth: 960, minHeight: 640)
+            RootView().environmentObject(model).environment(\.readingPalette, palette).preferredColorScheme(palette.colorScheme).frame(minWidth: 960, minHeight: 640)
                 .onOpenURL { model.importFiles([$0]) }
         }
         .defaultSize(width: 1360, height: 880)
@@ -21,10 +21,10 @@ struct ScholaraApp: App {
                 Button("Toggle Agent Scholar") { model.toggleReaderMode() }.keyboardShortcut("\\", modifiers: .command)
             }
         }
-        Settings { SettingsView().environmentObject(model).environment(\.readingPalette, palette).preferredColorScheme(.light).frame(width: 760, height: 680) }
+        Settings { SettingsView().environmentObject(model).environment(\.readingPalette, palette).preferredColorScheme(palette.colorScheme).frame(width: 760, height: 680) }
     }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.appearance = NSAppearance(named: .aqua); NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
+    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

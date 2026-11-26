@@ -27,8 +27,8 @@ Requires macOS 14 or later. This image is built for the architecture in its file
 This preview is ad-hoc signed, not Developer ID signed or notarized.
 macOS Gatekeeper may prevent it from opening as a trusted downloaded application.
 
-Paper and Soft: Settings > Reading.
-Scroll / Pages: reader toolbar.
+Paper / Soft / Dark and fonts: reader three-dot menu > Style.
+Scroll / Pages: reader three-dot menu > Reading mode.
 OpenRouter model paths: Settings > AI & Models.
 Embedding is optional and enabled explicitly for each book.
 

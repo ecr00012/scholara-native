@@ -119,3 +119,89 @@ extension CoreTests {
         try checkEqual(epub.chapters.map(\.title),["First chapter","Nested chapter"])
     }
 }
+
+extension CoreTests {
+    func testSVGFrontCoverLabelsAndEmptySections() throws {
+        let root = temporary.appendingPathComponent("FrontMatter")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        let files = [
+            ".complete": "",
+            "META-INF/container.xml": #"<container><rootfiles><rootfile full-path="package.opf"/></rootfiles></container>"#,
+            "package.opf": #"<package><metadata><title>Cover Book</title><meta name="cover" content="cover"/></metadata><manifest><item id="cover" href="cover.png"/><item id="a" href="wrap000.xhtml"/><item id="b" href="blank.xhtml"/><item id="c" href="wrap002.xhtml"/></manifest><spine><itemref idref="a"/><itemref idref="b"/><itemref idref="c"/></spine></package>"#,
+            "wrap000.xhtml": #"<html xmlns:xlink="http://www.w3.org/1999/xlink"><head><title>Hidden title</title></head><body><svg><image xlink:href="cover.png"/></svg></body></html>"#,
+            "blank.xhtml": "<html><head><title>Not displayed</title></head><body>   </body></html>",
+            "wrap002.xhtml": "<html><body><h1>The First Chapter</h1><p>A story begins.</p></body></html>"
+        ]
+        for (name, text) in files { try Data(text.utf8).write(to: root.appendingPathComponent(name)) }
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 3, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        try bitmap.representation(using: .png, properties: [:])!.write(to: root.appendingPathComponent("cover.png"))
+        let epub = try EPUBBook.open(at: fixture("sample.epub"), extractedTo: root)
+        try checkEqual(epub.chapters.map(\.title), ["Cover", "Section 2", "The First Chapter"])
+        let cover = try epub.readableChapter(startingAt: 0)
+        try checkEqual(cover.index, 0)
+        try checkTrue(cover.text.attribute(.attachment, at: 0, effectiveRange: nil) is NSTextAttachment)
+        try checkEqual(try epub.readableChapter(startingAt: 1).index, 2)
+        try checkEqual(try epub.readableChapter(startingAt: 1, direction: -1).index, 0)
+        try checkEqual(epub.chapters.map(\.id), [0, 1, 2])
+        let unsafe = try EPUBBook.renderXHTML(Data(#"<html><body><svg><image href="https://example.com/remote.png"/></svg><script><svg><image href="cover.png"/></svg></script></body></html>"#.utf8), base: root, root: root)
+        try checkTrue(unsafe.string.isEmpty)
+    }
+    func testReaderFontPreservesEmphasisAndTextAnchors() throws {
+        let xhtml = Data("<html><body><p>A <em>quiet</em> and <strong>thoughtful</strong> reader.</p></body></html>".utf8)
+        let serif = try EPUBBook.renderXHTML(xhtml, base: temporary, root: temporary, fontSize: 18, fontFamily: .georgia)
+        let sans = try EPUBBook.renderXHTML(xhtml, base: temporary, root: temporary, fontSize: 24, fontFamily: .sans)
+        try checkEqual(serif.string, sans.string)
+        let plain = sans.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+        try checkEqual(plain.pointSize, 24)
+        try checkNotEqual(plain.familyName, (serif.attribute(.font, at: 0, effectiveRange: nil) as! NSFont).familyName)
+        let italic = sans.attribute(.font, at: (sans.string as NSString).range(of: "quiet").location, effectiveRange: nil) as! NSFont
+        let bold = sans.attribute(.font, at: (sans.string as NSString).range(of: "thoughtful").location, effectiveRange: nil) as! NSFont
+        try checkTrue(NSFontManager.shared.traits(of: italic).contains(.italicFontMask))
+        try checkTrue(NSFontManager.shared.traits(of: bold).contains(.boldFontMask))
+    }
+    func testGutenbergExplicitRetryRecoversBeforeBackoffExpires() async throws {
+        var hits = 0
+        DiscoveryStub.handler = { _ in hits += 1; return hits == 1 ? (503, ["Retry-After":"21600"], Data()) : (200, [:], Data("recovered".utf8)) }
+        let client = discoveryClient(), url = URL(string: "https://www.gutenberg.org/cover.jpg")!
+        do { _ = try await client.data(from: url); throw CheckFailure("Expected 503") }
+        catch let error as DiscoveryHTTPError { try checkEqual(error.status, 503) }
+        await client.retryNow()
+        let recovered = try await client.data(from: url)
+        try checkEqual(String(decoding: recovered, as: UTF8.self), "recovered")
+        _ = try await client.data(from: url)
+        try checkEqual(hits, 3)
+    }
+}
+
+extension CoreTests {
+    func testWholeBookPageNumbersCrossChapterBoundaries() throws {
+        let index = BookPagination(chapterCounts: [1, 0, 3, 2])
+        try checkEqual(index.total, 6)
+        try checkEqual(index.chapterStarts, [0, 1, 1, 4])
+        try checkEqual(index.page(chapter: 0, localPage: 0), 1)
+        try checkEqual(index.page(chapter: 2, localPage: 0), 2)
+        try checkEqual(index.page(chapter: 2, localPage: 2), 4)
+        try checkEqual(index.page(chapter: 3, localPage: 0), 5)
+        try checkEqual(index.page(chapter: 3, localPage: 1), 6)
+        try checkEqual(index.page(chapter: 3, localPage: Int.max), 6)
+    }
+    func testWholeBookPaginationRunsInBackgroundAndRespondsToFontSize() async throws {
+        let epub = try EPUBBook.open(at: fixture("sample.epub"), extractedTo: temporary.appendingPathComponent("Pagination"))
+        let small = try await Task.detached {
+            try BookPagination.build(book: epub, size: NSSize(width: 320, height: 400), fontSize: 14, fontFamily: .serif)
+        }.value
+        let large = try await Task.detached {
+            try BookPagination.build(book: epub, size: NSSize(width: 320, height: 400), fontSize: 28, fontFamily: .serif)
+        }.value
+        try checkEqual(small.chapterCounts.count, epub.chapters.count)
+        try checkTrue(large.total > small.total)
+        try checkEqual(large.page(chapter: epub.chapters.count - 1, localPage: large.chapterCounts.last! - 1), large.total)
+        let cancelled = Task.detached {
+            try await Task.sleep(for: .seconds(5))
+            return try BookPagination.build(book: epub, size: NSSize(width: 320, height: 400), fontSize: 14, fontFamily: .serif)
+        }
+        cancelled.cancel()
+        do { _ = try await cancelled.value; throw CheckFailure("Cancelled pagination should not publish a result") }
+        catch is CancellationError { }
+    }
+}

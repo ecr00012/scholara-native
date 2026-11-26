@@ -5,36 +5,45 @@ import ScholaraCore
 actor CoverCache {
     static let shared = CoverCache()
     var memory: [String: Data] = [:]
-    func imageData(url: URL, directory: URL) async throws -> Data {
+    func imageData(url: URL, directory: URL) async throws -> (data: Data, fetched: Bool) {
         let key = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
-        if let value = memory[key] { return value }
+        if let value = memory[key] { return (value, false) }
         let file = directory.appendingPathComponent(key + ".image")
-        if let data = try? Data(contentsOf: file), NSImage(data: data) != nil { memory[key] = data; return data }
+        if let data = try? Data(contentsOf: file), NSImage(data: data) != nil { memory[key] = data; return (data, false) }
         let data = try await GutenbergHTTP.shared.data(from: url)
         guard NSImage(data: data) != nil else { throw ScholaraError("Cover image unavailable.") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
         if memory.count >= 128 { memory.removeAll(keepingCapacity: true) }
-        memory[key] = data; return data
+        memory[key] = data; return (data, true)
     }
 }
 struct GutenbergCover: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.readingPalette) private var palette
     let book: GutenbergBook
-    let onUnavailable: (String) -> Void
+    let reload: UUID
+    let onServiceResult: (String?) -> Void
     @State private var image: NSImage?
     @State private var unavailable = false
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6).fill(palette.surface)
-            if let image { Image(nsImage: image).resizable().scaledToFit() }
+            if let image { Image(nsImage: image).resizable().scaledToFill().frame(width: 88, height: 132).clipped() }
             else { VStack(spacing: 8) { Image(systemName: "book.closed").font(.title2); Text(book.title).font(.custom("Iowan Old Style", size: 12)).multilineTextAlignment(.center).lineLimit(5); if unavailable { Text("Cover unavailable").font(.system(size: 9)).foregroundStyle(.secondary) } }.padding(8).foregroundStyle(palette.muted) }
-        }.frame(width: 88, height: 128).clipShape(RoundedRectangle(cornerRadius: 6))
-            .task(id: book.id) {
+        }.frame(width: 88, height: 132).clipShape(RoundedRectangle(cornerRadius: 6))
+            .task(id: reload) {
                 guard let url = book.coverURL, let root = model.store?.root else { unavailable = true; return }
-                do { let data = try await CoverCache.shared.imageData(url: url, directory: root.appendingPathComponent("CoverCache")); image = NSImage(data: data) }
-                catch { unavailable = true; if let error = error as? DiscoveryHTTPError, error.status == 503 { onUnavailable(error.localizedDescription) } }
+                do {
+                    let result = try await CoverCache.shared.imageData(url: url, directory: root.appendingPathComponent("CoverCache"))
+                    try Task.checkCancellation()
+                    image = NSImage(data: result.data); unavailable = false
+                    if result.fetched { onServiceResult(nil) }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    unavailable = true
+                    if let error = error as? DiscoveryHTTPError, error.status == 503 { onServiceResult(error.localizedDescription) }
+                }
             }
     }
 }
@@ -49,6 +58,7 @@ struct DiscoveryView: View {
     @State private var generation = UUID()
     @State private var status = ""
     @State private var serviceNotice = ""
+    @State private var coverReload = UUID()
     @State private var lastFailedURL: URL?
     @State private var lastFailedReset = false
     var body: some View {
@@ -56,12 +66,18 @@ struct DiscoveryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Discover the classics").font(.largeTitle.weight(.semibold)).foregroundStyle(palette.ink)
                 Text("Public-domain books from Project Gutenberg, via Gutendex.").foregroundStyle(palette.muted)
-                if !serviceNotice.isEmpty { Label(serviceNotice, systemImage: "clock.badge.exclamationmark").font(.callout).foregroundStyle(palette.muted).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(palette.surface, in: RoundedRectangle(cornerRadius: 12)) }
+                if !serviceNotice.isEmpty {
+                    HStack {
+                        Label(serviceNotice, systemImage: "exclamationmark.icloud").font(.callout).foregroundStyle(palette.muted)
+                        Spacer()
+                        Button("Retry") { retryCovers() }
+                    }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                }
                 if !status.isEmpty { HStack { Text(status).foregroundStyle(palette.muted); if let failed = lastFailedURL { Button("Retry") { load(url: failed, reset: lastFailedReset) } } } }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 20)], spacing: 20) {
                     ForEach(cursor.books) { book in
                         HStack(alignment: .top, spacing: 16) {
-                            GutenbergCover(book: book) { serviceNotice = $0 }
+                            GutenbergCover(book: book, reload: coverReload) { serviceNotice = $0 ?? "" }
                             VStack(alignment: .leading, spacing: 9) {
                                 Text(book.title).font(.headline).lineLimit(3).foregroundStyle(palette.ink); Text(book.author).font(.caption).foregroundStyle(palette.muted).lineLimit(2)
                                 if downloading.contains(book.id) { ProgressView("Downloading…").controlSize(.small) }
@@ -76,9 +92,12 @@ struct DiscoveryView: View {
                 if !cursor.books.isEmpty { Text("\(cursor.books.count) of \(cursor.total.formatted()) books").font(.caption).foregroundStyle(palette.muted).frame(maxWidth: .infinity) }
             }.padding(32)
         }.background(palette.background).navigationTitle("Discover").searchable(text: $query, prompt: "Search Gutenberg books").onSubmit(of: .search) { load(url: Gutenberg.searchURL(query), reset: true) }
-        .toolbar { Button { load(url: Gutenberg.searchURL(query), reset: true) } label: { Label("Refresh", systemImage: "arrow.clockwise") } }
+        .toolbar { Button { retryCovers(); load(url: Gutenberg.searchURL(query), reset: true) } label: { Label("Refresh", systemImage: "arrow.clockwise") } }
         .onAppear { if cursor.books.isEmpty { loadCache(); load(url: Gutenberg.searchURL(query), reset: true) } }
         .onDisappear { request?.cancel() }
+    }
+    func retryCovers() {
+        Task { await GutenbergHTTP.shared.retryNow(); serviceNotice = ""; coverReload = UUID() }
     }
     func load(url: URL, reset: Bool) {
         request?.cancel(); let token = UUID(); generation = token; loading = true; status = ""; lastFailedURL = nil
@@ -95,8 +114,14 @@ struct DiscoveryView: View {
     func download(_ book: GutenbergBook) {
         guard let store = model.store else { return }; downloading.insert(book.id)
         Task {
-            do { let result = try await Task.detached { try await Gutenberg.download(book, store: store) }.value; model.imported(result) }
-            catch { model.error = error.localizedDescription }
+            do {
+                await GutenbergHTTP.shared.retryNow()
+                let result = try await Task.detached { try await Gutenberg.download(book, store: store) }.value
+                serviceNotice = ""; model.imported(result)
+            } catch {
+                if let error = error as? DiscoveryHTTPError, error.status == 503 { serviceNotice = error.localizedDescription }
+                model.error = error.localizedDescription
+            }
             downloading.remove(book.id)
         }
     }

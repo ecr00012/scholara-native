@@ -7,6 +7,8 @@ struct ReaderView: View {
     @Environment(\.readingPalette) private var palette
     let book: Book
     @StateObject private var state: ReaderState
+    @State private var showStyle = false
+    @AppStorage("readerFontFamily") private var fontFamily = ReaderFont.serif.rawValue
     @State private var showContents = false
     @State private var showScholar = false
     @State private var pageEntry = ""
@@ -56,7 +58,7 @@ struct ReaderView: View {
                                 Text(tab).font(.system(size: 14, weight: state.tab == tab ? .medium : .regular))
                                     .foregroundStyle(state.tab == tab ? palette.ink : palette.muted)
                                     .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                    .background(state.tab == tab ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 19))
+                                    .background(state.tab == tab ? palette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 19))
                                     .shadow(color: .black.opacity(state.tab == tab ? 0.04 : 0), radius: 3, y: 2)
                             }.buttonStyle(.plain).accessibilityAddTraits(state.tab == tab ? [.isSelected] : [])
                         }
@@ -65,24 +67,32 @@ struct ReaderView: View {
                     if state.tab == "Scholar" { ChatView(state: state) }
                     else if state.tab == "Notes" { NotesPanel(state: state) }
                     else { WordsPanel(state: state) }
-                }.frame(minWidth: 300, idealWidth: 360, maxWidth: 500)
+                }.frame(minWidth: 300, idealWidth: 360, maxWidth: 500).background(palette.background)
             }
         }
         .navigationTitle(book.title).navigationSubtitle(book.author)
         .toolbar {
             Button { state.flush(); model.activeBookID = nil; model.refresh() } label: { Label("Library", systemImage: "books.vertical") }
-            Picker("Reading layout", selection: Binding(get: { state.readingMode }, set: { state.changeReadingMode($0) })) {
-                Text("Scroll").tag("scroll")
-                Text("Pages").tag("pages")
-            }.pickerStyle(.segmented).frame(width: 170).help("Scroll through the book, or turn one page at a time")
             Button { model.toggleReaderMode() } label: { Label(readerOnly ? "Show Study Panel" : "Focus on Reading", systemImage: "sidebar.right") }
-            Menu { BookMenu(book: model.activeBook ?? book); if book.format == "pdf" { Divider(); Button("Print…") { state.pdfView?.print(with: NSPrintInfo.shared, autoRotate: true) } } } label: { Image(systemName: "ellipsis.circle") }
+            Menu {
+                Picker("Reading mode", selection: Binding(get: { state.readingMode }, set: { state.changeReadingMode($0) })) {
+                    Text("Scroll").tag("scroll")
+                    Text("Pages").tag("pages")
+                }
+                Button("Style…") { showStyle = true }
+                Divider()
+                BookMenu(book: model.activeBook ?? book)
+                if book.format == "pdf" { Divider(); Button("Print…") { state.pdfView?.print(with: NSPrintInfo.shared, autoRotate: true) } }
+            } label: { Image(systemName: "ellipsis.circle") }
+                .help("Reader options").accessibilityLabel("Reader options")
+                .sheet(isPresented: $showStyle) { ReaderStyleView(isPDF: book.format == "pdf") }
         }
         .background(palette.background)
-        .task { state.palette = palette; await state.load(fontSize: fontSize) }
+        .task { state.palette = palette; state.fontFamily = ReaderFont(rawValue: fontFamily) ?? .serif; await state.load(fontSize: fontSize) }
+        .onChange(of: fontFamily) { _, family in state.fontFamily = ReaderFont(rawValue: family) ?? .serif; do { try state.loadChapter() } catch { state.error = error.localizedDescription } }
         .onChange(of: palette) { _, palette in state.palette = palette; do { try state.loadChapter() } catch { state.error = error.localizedDescription } }
         .onChange(of: fontSize) { _, size in state.fontSize = size; do { try state.loadChapter() } catch { state.error = error.localizedDescription } }
-        .onDisappear { state.flush() }
+        .onDisappear { state.flush(); state.cancelPagination() }
         .overlay(alignment: .top) {
             if state.showDefinition {
                 ZStack(alignment: .top) {
@@ -127,20 +137,32 @@ struct NotesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !state.selection.isEmpty { Text(state.selection).font(.system(.callout, design: .serif)).foregroundStyle(.secondary).lineLimit(4).padding(.horizontal) }
-            TextEditor(text: $state.noteDraft).frame(height: 85).padding(.horizontal).overlay(alignment: .topLeading) { if state.noteDraft.isEmpty { Text("Write a note about this passage…").font(.callout).foregroundStyle(.tertiary).padding(.leading, 22).padding(.top, 6).allowsHitTesting(false) } }
+            NoteInput(text: $state.noteDraft).frame(height: 105).padding(.horizontal)
             HStack { Text(state.positionLabel).font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save Note") { state.saveNote() }.disabled((state.selection + state.noteDraft).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }.padding(.horizontal)
             Divider()
-            List(state.notes) { note in
-                VStack(alignment: .leading, spacing: 8) {
-                    if !note.quote.isEmpty { Text(note.quote).font(.system(.callout, design: .serif)).foregroundStyle(.secondary).lineLimit(8) }
-                    if !note.text.isEmpty { Text(note.text) }
-                    Button("\(state.book.format == "pdf" ? "Page" : "Section") \(note.position + 1)") { state.show(note) }.buttonStyle(.link).font(.caption)
-                }.padding(.vertical, 6).textSelection(.enabled).contextMenu {
-                    Button("Edit Note…") { editing = note; editText = note.text }
-                    Button("Delete", role: .destructive) { do { try state.store.deleteNote(note.id); state.reloadStudy() } catch { state.error = error.localizedDescription } }
-                }
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(state.notes) { note in
+                        VStack(alignment: .leading, spacing: 12) {
+                            NoteContent(note: note)
+                            HStack {
+                                Button("\(state.book.format == "pdf" ? "Page" : "Chapter") \(note.position + 1)") { state.show(note) }.buttonStyle(.plain).foregroundStyle(palette.accent)
+                                Spacer()
+                                Button { editing = note; editText = note.text } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit note")
+                                Button { delete(note) } label: { Image(systemName: "trash") }.accessibilityLabel("Delete note")
+                            }.font(.caption).buttonStyle(.plain).foregroundStyle(palette.muted)
+                        }.studyCard().contextMenu {
+                            Button("Edit Note…") { editing = note; editText = note.text }
+                            Button("Delete", role: .destructive) { delete(note) }
+                        }
+                    }
+                }.padding(12)
             }.overlay { if state.notes.isEmpty { ContentUnavailableView("Keep a thought", systemImage: "note.text", description: Text("Select a passage to highlight it, or write a note above.")) } }
-        }.sheet(item: $editing) { note in VStack { Text("Edit Note").font(.headline); TextEditor(text: $editText).frame(height: 180); HStack { Button("Cancel") { editing = nil }; Spacer(); Button("Save") { do { try state.store.editNote(note.id, text: editText); state.reloadStudy(); editing = nil } catch { state.error = error.localizedDescription } } } }.padding(24).frame(width: 420) }
+
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(palette.background).sheet(item: $editing) { note in VStack { Text("Edit Note").font(.headline); NoteInput(text: $editText).frame(height: 180); HStack { Button("Cancel") { editing = nil }; Spacer(); Button("Save") { do { try state.store.editNote(note.id, text: editText); state.reloadStudy(); editing = nil } catch { state.error = error.localizedDescription } } } }.padding(24).frame(width: 420).background(palette.background) }
+    }
+    private func delete(_ note: Note) {
+        do { try state.store.deleteNote(note.id); state.reloadStudy() } catch { state.error = error.localizedDescription }
     }
 }
 struct WordsPanel: View {

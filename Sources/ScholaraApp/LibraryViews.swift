@@ -115,12 +115,17 @@ struct BookCard: View {
             Button { model.open(book) } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(palette.card)
-                    if let cover { Image(nsImage: cover).resizable().aspectRatio(contentMode: .fit).padding(2) }
+                    if let cover {
+                        GeometryReader { geometry in
+                            Image(nsImage: cover).resizable().aspectRatio(contentMode: book.format == "epub" ? .fill : .fit)
+                                .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                        }
+                    }
                     else {
                         LinearGradient(colors: [.orange.opacity(0.25), .brown.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         VStack(spacing: 16) { Image(systemName: "book.closed").font(.largeTitle); Text(book.title).font(.system(.title3, design: .serif)).multilineTextAlignment(.center).lineLimit(5); Text(book.author).font(.caption).lineLimit(2) }.padding(20)
                     }
-                }.frame(height: 240).clipShape(RoundedRectangle(cornerRadius: 8)).shadow(color: .black.opacity(0.10), radius: 6, y: 4)
+                }.aspectRatio(2.0 / 3.0, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 8)).shadow(color: .black.opacity(0.10), radius: 6, y: 4)
             }.buttonStyle(.plain).accessibilityLabel("Read \(book.title)")
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) { Text(book.title).font(.headline).lineLimit(2); Text(book.author.isEmpty ? "Unknown author" : book.author).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
@@ -170,18 +175,23 @@ struct CollectionView: View {
     @State private var words: [Vocabulary] = []
     @State private var search = ""
     var body: some View {
-        List {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
             if vocabulary {
                 ForEach(words.filter { search.isEmpty || ($0.word + $0.definition).localizedCaseInsensitiveContains(search) }) { word in
-                    VStack(alignment: .leading, spacing: 7) { DefinitionContent(entry: DictionaryEntry.parse(word.definition, word: word.word), compact: true); bookButton(word.bookID) }.padding(.vertical, 6)
+                    VStack(alignment: .leading, spacing: 7) { DefinitionContent(entry: DictionaryEntry.parse(word.definition, word: word.word), compact: true); bookButton(word.bookID) }.studyCard()
                         .contextMenu { Button("Delete", role: .destructive) { model.perform { try model.store?.deleteWord(word.id); reload() } } }
                 }
             } else {
                 ForEach(notes.filter { search.isEmpty || ($0.quote + $0.text).localizedCaseInsensitiveContains(search) }) { note in
-                    VStack(alignment: .leading, spacing: 7) { if !note.quote.isEmpty { Text(note.quote).font(.system(.body, design: .serif)).foregroundStyle(.secondary) }; if !note.text.isEmpty { Text(note.text) }; HStack { bookButton(note.bookID); Text("Position \(note.position + 1)").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 8).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 12) {
+                        NoteContent(note: note)
+                        HStack { bookButton(note.bookID); Spacer(); Text("\(model.books.first(where: { $0.id == note.bookID })?.format == "pdf" ? "Page" : "Chapter") \(note.position + 1)").font(.caption).foregroundStyle(palette.muted) }
+                    }.studyCard()
                         .contextMenu { Button("Delete", role: .destructive) { model.perform { try model.store?.deleteNote(note.id); reload() } } }
                 }
             }
+            }.padding(24)
         }.overlay { if (vocabulary ? words.isEmpty : notes.isEmpty) { ContentUnavailableView(vocabulary ? "Your words, collected" : "Your ideas, collected", systemImage: vocabulary ? "character.book.closed" : "note.text", description: Text("Select text while reading to save a highlight, note, or definition.")) } }
         .navigationTitle(vocabulary ? "Vocabulary" : "Notes & Highlights").searchable(text: $search).onAppear(perform: reload)
     }
